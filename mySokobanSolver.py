@@ -31,6 +31,7 @@ Last modified by 2021-08-17  by f.maire@qut.edu.au
 # with these files
 import search 
 import sokoban
+from collections import deque
 
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -84,7 +85,25 @@ def taboo_cells(warehouse):
     # Mark coordinates of wall pieces
     for (x, y) in walls:
         grid[y][x] = '#' # I am pretty sure its '#' but we will check
-    
+
+    #### NEW: Add flood fill to restrict taboo marking to reachable floor space ####
+
+    def flood_fill_reachable(walls, start, nrows, ncols):
+        visited = set()
+        queue = deque([start])
+        while queue:
+            x, y = queue.popleft()
+            if (x, y) in visited or (x, y) in walls:
+                continue
+            visited.add((x, y))
+            for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < ncols and 0 <= ny < nrows and (nx, ny) not in visited:
+                    queue.append((nx, ny))
+        return visited
+
+    reachable = flood_fill_reachable(walls, warehouse.worker, nrows, ncols)
+
     # Now comes whats considered as "TABOO CELLS (SPACES)" deterministic logic, I am going to do my best to figure out the logic :D
 
     # Rule 1: Mark corners as taboo cells if they are not targets.
@@ -93,6 +112,8 @@ def taboo_cells(warehouse):
 
     for y in range(nrows): # Textbook said imbedded for loops allow the program to cross check? making it dynamically deterministic
         for x in range(ncols):
+            if (x, y) not in reachable:
+                continue
             if (x, y) in walls or (x, y) in targets:
                 continue
             # needs to check all four corner configurations
@@ -108,33 +129,32 @@ def taboo_cells(warehouse):
     # and none of the in-between cells is a target, mark all cells in between as taboo.
 
     for y in range(nrows):
-        taboo_indices = [x for x in range(ncols) if grid[y][x] == 'X']
+        taboo_indices = [x for x in range(ncols) if grid[y][x] == 'X' and (x, y) in reachable]
         for i in range(len(taboo_indices) - 1):
             x1 = taboo_indices[i]
             x2 = taboo_indices[i + 1]
             if x2 - x1 > 1:
-                if all((x, y) not in targets for x in range(x1 + 1, x2)):
+                if all((x, y) not in targets and (x, y) not in walls and (x, y) in reachable for x in range(x1 + 1, x2)):
                     for x in range(x1 + 1, x2):
                         if grid[y][x] != '#': # do not override walls
                             grid[y][x] = 'X' 
 
     # Rule 2: For vertical segments.
     for x in range(ncols):
-        taboo_indices = [y for y in range(nrows) if grid[y][x] == 'X']
+        taboo_indices = [y for y in range(nrows) if grid[y][x] == 'X' and (x, y) in reachable]
         for i in range(len(taboo_indices) - 1):
             y1 = taboo_indices[i]
             y2 = taboo_indices[i + 1]
             if y2 - y1 > 1:
-                if all((x, y) not in targets for y in range(y1 + 1, y2)):
+                if all((x, y) not in targets and (x, y) not in walls and (x, y) in reachable for y in range(y1 + 1, y2)):
                     for y in range(y1 + 1, y2):
                         if grid[y][x] != '#':
                             grid[y][x] = 'X'
-    
+
     result = "\n".join("".join(row) for row in grid)
     return result
 
 # We may need to check through the logic make sure it all makes sense
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 
