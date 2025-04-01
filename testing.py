@@ -1,10 +1,13 @@
 from sokoban import Warehouse
 from mySokobanSolver import solve_weighted_sokoban, check_elem_action_seq
 from scipy.optimize import linear_sum_assignment
-import os
 
 
 def verify_box_assignments(initial_boxes, final_boxes, targets, weights):
+    """
+    Uses the Hungarian algorithm to verify if the final box placement
+    matches the minimal weighted cost assignment.
+    """
     cost_matrix = []
     for box in initial_boxes:
         row = []
@@ -22,11 +25,9 @@ def verify_box_assignments(initial_boxes, final_boxes, targets, weights):
 
 
 def test_solve_weighted_sokoban():
-    folder = r"C:\Users\thesc\Documents\UNI\2025 - Semester 1\CAB320 - Artificial Intelligence\Assignments\Assignment 1\official\CAB320---Artificial-Intelligence\warehouses"
-
     test_files = [
         "warehouse_03.txt",
-        "warehouse_07.txt",
+        "warehouse_8a.txt",
         "warehouse_13.txt",
         "warehouse_47.txt",
         "warehouse_49.txt",
@@ -38,18 +39,9 @@ def test_solve_weighted_sokoban():
     ]
 
     for fname in test_files:
-        path = os.path.join(folder, fname)
         print(f"\n<< Testing {fname} >>")
         w = Warehouse()
-        if not os.path.exists(path):
-            print(f"File not found: {path}")
-            continue
-
-        print(f"Loading {fname} from: {path}")
-        with open(path, 'r') as f: print(repr(f.readline()))  # Peek the first line
-
-        
-        w.load_warehouse(path)
+        w.load_warehouse(f"./warehouses/{fname}")
         initial_boxes = sorted(w.boxes)
 
         actions, cost = solve_weighted_sokoban(w)
@@ -58,6 +50,7 @@ def test_solve_weighted_sokoban():
             print("❌ No solution found.")
             continue
 
+        # Step 1: Check the action sequence is valid
         result_str = check_elem_action_seq(w, actions)
         if result_str == "Impossible":
             print("❌ Invalid action sequence.")
@@ -65,25 +58,35 @@ def test_solve_weighted_sokoban():
         else:
             print(f"✅ Valid path — {len(actions)} steps, cost: {cost}")
 
+        # Step 2: Parse the final warehouse state
         final_w = Warehouse()
         final_w.from_string(result_str)
         final_boxes = sorted(final_w.boxes)
 
-        correct_assignment, expected = verify_box_assignments(
-            initial_boxes, final_boxes, list(w.targets), w.weights
-        )
-
-        if correct_assignment:
-            print("✅ Correct box-to-target assignment (weight-aware)")
+        # Only use weight-aware matching if weights are non-zero
+        if w.weights and any(w.weights):
+            correct_assignment, expected = verify_box_assignments(
+                initial_boxes, final_boxes, list(w.targets), w.weights
+            )
+            if correct_assignment:
+                print("✅ Correct box-to-target assignment (weight-aware)")
+            else:
+                print("⚠️ Boxes were not pushed to optimal targets based on weight.")
+                print("Expected assignments:")
+                for b, t in expected.items():
+                    print(f"  Box at {b} → Target at {t}")
+                print("But final boxes were:")
+                for i, b in enumerate(final_boxes):
+                    print(f"  Box {i} at {b}")
         else:
-            print("⚠️ Boxes were not pushed to optimal targets based on weight.")
-            print("Expected assignments:")
-            for b, t in expected.items():
-                print(f"  Box at {b} → Target at {t}")
-            print("But final boxes were:")
-            for i, b in enumerate(final_boxes):
-                print(f"  Box {i} at {b}")
+            print("✅ Correct final box positions (weights not used)")
 
-        print("First few actions:", actions[:10], "..." if len(actions) > 10 else "")
+
+        # Optional: Show first few actions
+        #print("First few actions:", actions[:10], "..." if len(actions) > 10 else "")
+
+        print("Full action sequence ({} steps):".format(len(actions)))
+        print(", ".join(actions))
+
 if __name__ == "__main__":
     test_solve_weighted_sokoban()

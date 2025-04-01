@@ -184,19 +184,73 @@ class Problem(object):
         state. The result would typically be a list, but if there are
         many actions, consider yielding them one at a time in an
         iterator, rather than building them all at once."""
-        raise NotImplementedError
+        DIRS = {
+            'Left':  (-1, 0),
+            'Right': (1, 0),
+            'Up':    (0, -1),
+            'Down':  (0, 1),
+        }
+
+        worker, boxes = state
+        boxes = set(boxes)  # Faster lookup
+        actions = []
+
+        for direction, (dx, dy) in DIRS.items():
+            next_pos = (worker[0] + dx, worker[1] + dy)
+
+            if next_pos in self.walls:
+                continue  # Worker walks into a wall — illegal
+
+            if next_pos in boxes:
+                # Attempt to push the box
+                box_next = (next_pos[0] + dx, next_pos[1] + dy)
+                if box_next in self.walls or box_next in boxes:
+                    continue  # Can't push into wall or another box
+                actions.append(direction)
+            else:
+                # Just walking into empty space
+                actions.append(direction)
+
+        return actions
 
     def result(self, state, action):
         """Return the state that results from executing the given
         action in the given state. The action must be one of
         self.actions(state)."""
-        raise NotImplementedError
+        DIRS = {
+            'Left':  (-1, 0),
+            'Right': (1, 0),
+            'Up':    (0, -1),
+            'Down':  (0, 1),
+        }
+
+        if action not in DIRS:
+            raise ValueError(f"Invalid action: {action}")
+
+        dx, dy = DIRS[action]
+        worker, boxes = state
+        boxes = set(boxes)  # Convert to set for faster mutation
+
+        next_pos = (worker[0] + dx, worker[1] + dy)
+
+        if next_pos in boxes:
+            # Move the box
+            box_next = (next_pos[0] + dx, next_pos[1] + dy)
+            boxes.remove(next_pos)
+            boxes.add(box_next)
+
+        # Move the worker
+        new_worker = next_pos
+
+        # Return the new state
+        return (new_worker, tuple(sorted(boxes)))
 
     def goal_test(self, state):
         """Return True if the state is a goal. The default method compares the
         state to self.goal, as specified in the constructor. Override this
         method if checking against a single self.goal is not enough."""
-        return state == self.goal
+        _, boxes = state
+        return set(boxes) == self.targets
 
     def path_cost(self, c, state1, action, state2):
         """Return the cost of a solution path that arrives at state2 from
@@ -204,6 +258,25 @@ class Problem(object):
         is such that the path doesn't matter, this function will only look at
         state2.  If the path does matter, it will consider c and maybe state1
         and action. The default method costs 1 for every step in the path."""
+        if not hasattr(self.warehouse, 'weights') or not self.warehouse.weights:
+            return c + 1
+
+        dx, dy = {
+            'Left':  (-1, 0),
+            'Right': (1, 0),
+            'Up':    (0, -1),
+            'Down':  (0, 1)
+        }[action]
+
+        worker1, boxes1 = state1
+        target_pos = (worker1[0] + dx, worker1[1] + dy)
+
+        # If worker is pushing a box...
+        if target_pos in boxes1:
+            box_index = sorted(boxes1).index(target_pos)
+            return c + self.warehouse.weights[box_index]
+
+        # No box pushed, normal movement
         return c + 1
 
     def value(self, state):

@@ -32,6 +32,7 @@ Last modified by 2021-08-17  by f.maire@qut.edu.au
 import search 
 import sokoban
 from collections import deque
+from scipy.optimize import linear_sum_assignment
 
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -168,7 +169,7 @@ class SokobanPuzzle(search.Problem):
     the provided module 'search.py'. 
     
     '''
-    
+        
     #
     #         "INSERT YOUR CODE HERE"
     #
@@ -182,15 +183,89 @@ class SokobanPuzzle(search.Problem):
 
     
     def __init__(self, warehouse):
-        raise NotImplementedError()
+        self.warehouse = warehouse
+        self.walls = set(warehouse.walls)
+        self.targets = set(warehouse.targets)
+        self.initial_boxes = tuple(warehouse.boxes)
+        self.weights_dict = dict(zip(self.initial_boxes, warehouse.weights))
+        self.initial = (warehouse.worker, self.initial_boxes)
 
     def actions(self, state):
-        """
-        Return the list of actions that can be executed in the given state.
-        
-        """
-        raise NotImplementedError
+        DIRS = {
+            'Left':  (-1,  0),
+            'Right': (1,  0),
+            'Up':    (0, -1),
+            'Down':  (0,  1),
+        }
 
+        worker, boxes = state
+        boxes_set = set(boxes)
+        actions = []
+
+        for direction, (dx, dy) in DIRS.items():
+            next_pos = (worker[0] + dx, worker[1] + dy)
+            if next_pos in self.walls:
+                continue
+            if next_pos in boxes_set:
+                box_next = (next_pos[0] + dx, next_pos[1] + dy)
+                if box_next in self.walls or box_next in boxes_set:
+                    continue
+                actions.append(direction)
+            else:
+                actions.append(direction)
+
+        return actions
+
+    def result(self, state, action):
+        DIRS = {
+            'Left':  (-1, 0),
+            'Right': (1, 0),
+            'Up':    (0, -1),
+            'Down':  (0, 1),
+        }
+
+        dx, dy = DIRS[action]
+        worker, boxes = state
+        boxes = list(boxes)  # convert tuple to list for mutation
+
+        next_pos = (worker[0] + dx, worker[1] + dy)
+
+        if next_pos in boxes:
+            box_index = boxes.index(next_pos)
+            box_next = (next_pos[0] + dx, next_pos[1] + dy)
+            boxes[box_index] = box_next
+
+        return (next_pos, tuple(boxes))  # ✅ boxes must be tuple for hashability
+
+    def goal_test(self, state):
+        _, boxes = state
+        return set(boxes) == self.targets
+
+    def path_cost(self, c, state1, action, state2):
+        worker1, boxes1 = state1
+        worker2, _ = state2
+
+        DIRS = {
+            'Left':  (-1, 0),
+            'Right': (1, 0),
+            'Up':    (0, -1),
+            'Down':  (0, 1)
+        }
+
+        dx, dy = DIRS[action]
+        expected_worker2 = (worker1[0] + dx, worker1[1] + dy)
+
+        # 🔒 Sanity check to make sure state transition is valid
+        assert worker2 == expected_worker2, f"Worker moved incorrectly: {worker1} + {action} != {worker2}"
+
+        push_pos = (worker1[0] + dx, worker1[1] + dy)
+
+        if push_pos in boxes1:
+            # ✅ Lookup the weight from the original box positions
+            weight = self.weights_dict.get(push_pos, 1)
+            return c + weight
+
+        return c + 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 def check_elem_action_seq(warehouse, action_seq):
@@ -217,9 +292,46 @@ def check_elem_action_seq(warehouse, action_seq):
                string returned by the method  Warehouse.__str__()
     '''
     
-    ##         "INSERT YOUR CODE HERE"
-    
-    raise NotImplementedError()
+    # Directions
+    DIRS = {
+        'Left':  (-1,  0),
+        'Right': ( 1,  0),
+        'Up':    ( 0, -1),
+        'Down':  ( 0,  1),
+    }
+
+    # Clone current state
+    worker = warehouse.worker
+    boxes = list(warehouse.boxes)
+    walls = set(warehouse.walls)
+
+    for action in action_seq:
+        if action not in DIRS:
+            return "Impossible"
+
+        dx, dy = DIRS[action]
+        next_pos = (worker[0] + dx, worker[1] + dy)
+
+        # If wall, illegal move
+        if next_pos in walls:
+            return "Impossible"
+
+        if next_pos in boxes:
+            # Try to push the box
+            box_next = (next_pos[0] + dx, next_pos[1] + dy)
+            if box_next in walls or box_next in boxes:
+                return "Impossible"  # can't push box into wall or another box
+
+            # Move the box
+            boxes.remove(next_pos)
+            boxes.append(box_next)
+
+        # Move the worker (into empty space or after pushing box)
+        worker = next_pos
+
+    # Final state: return a new warehouse representation
+    final = warehouse.copy(worker=worker, boxes=boxes)
+    return str(final)
 
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -248,7 +360,37 @@ def solve_weighted_sokoban(warehouse):
 
     '''
     
-    raise NotImplementedError()
+    puzzle = SokobanPuzzle(warehouse)
+
+    def heuristic(node):
+        _, boxes = node.state
+        targets = list(puzzle.targets)
+        weights = puzzle.warehouse.weights or [1] * len(boxes)
+
+        cost_matrix = []
+        for i, box in enumerate(boxes):
+            row = []
+            for target in targets:
+                dist = abs(box[0] - target[0]) + abs(box[1] - target[1])
+                weight = weights[i]
+                # Prefer assigning heavier boxes to closer targets
+                row.append(dist * weight + weight * 0.1)  # small tie-breaker
+            cost_matrix.append(row)
+
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+        return sum(cost_matrix[i][j] for i, j in zip(row_ind, col_ind))
+
+    solution_node = search.astar_graph_search(puzzle, h=heuristic)
+
+    if solution_node is None:
+        return 'Impossible', None
+
+    actions = solution_node.solution()
+    cost = solution_node.path_cost
+
+    return actions, cost
+
+
 
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
