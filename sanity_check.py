@@ -28,6 +28,7 @@ except ModuleNotFoundError:
     
 def test_taboo_cells():
     wh = Warehouse()
+    
     wh.load_warehouse("./warehouses/warehouse_01.txt")
     expected_answer = '####  \n#X #  \n#  ###\n#   X#\n#   X#\n#XX###\n####  '
     answer = taboo_cells(wh)
