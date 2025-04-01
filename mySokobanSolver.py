@@ -87,7 +87,7 @@ def taboo_cells(warehouse):
     for (x, y) in walls:
         grid[y][x] = '#' # I am pretty sure its '#' but we will check
 
-    #### NEW: Add flood fill to restrict taboo marking to reachable floor space ####
+    # Flood fill to restrict taboo marking to reachable floor space ####
 
     def flood_fill_reachable(walls, start, nrows, ncols):
         visited = set()
@@ -155,7 +155,7 @@ def taboo_cells(warehouse):
     result = "\n".join("".join(row) for row in grid)
     return result
 
-# We may need to check through the logic make sure it all makes sense
+# 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 
@@ -189,7 +189,40 @@ class SokobanPuzzle(search.Problem):
         self.initial_boxes = tuple(warehouse.boxes)
         self.weights_dict = dict(zip(self.initial_boxes, warehouse.weights))
         self.initial = (warehouse.worker, self.initial_boxes)
+        self.h = search.memoize(self.heuristic, slot='h')
+        self.box_id_map = {pos: i for i, pos in enumerate(warehouse.boxes)}
+        self.weights = warehouse.weights or [1] * len(warehouse.boxes)
 
+    
+    def heuristic(self, node):
+        worker, boxes = node.state
+        targets = list(self.targets)
+        weights = self.warehouse.weights or [1] * len(boxes)
+
+        # Calculate weighted cost of assigning boxes to targets
+        cost_matrix = []
+        for i, box in enumerate(boxes):
+            row = []
+            for target in targets:
+                dist = abs(box[0] - target[0]) + abs(box[1] - target[1])
+                weight = weights[i]
+                row.append(dist * weight)
+            cost_matrix.append(row)
+
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+        assignment_cost = sum(cost_matrix[i][j] for i, j in zip(row_ind, col_ind))
+
+        # Penalise high box counts and indirect moves (encourage fewer steps)
+        push_cost_estimate = len([b for b in boxes if b not in self.targets]) * 0.5
+
+        # Encourage proximity of worker to the nearest box (greedy bias)
+        min_worker_box_dist = min(abs(worker[0] - b[0]) + abs(worker[1] - b[1]) for b in boxes)
+
+        detour_penalty = node.depth * 0.1
+
+        return assignment_cost + 0.4 * min_worker_box_dist + detour_penalty + push_cost_estimate
+
+    
     def actions(self, state):
         DIRS = {
             'Left':  (-1,  0),
@@ -226,7 +259,7 @@ class SokobanPuzzle(search.Problem):
 
         dx, dy = DIRS[action]
         worker, boxes = state
-        boxes = list(boxes)  # convert tuple to list for mutation
+        boxes = list(boxes)  
 
         next_pos = (worker[0] + dx, worker[1] + dy)
 
@@ -235,36 +268,34 @@ class SokobanPuzzle(search.Problem):
             box_next = (next_pos[0] + dx, next_pos[1] + dy)
             boxes[box_index] = box_next
 
-        return (next_pos, tuple(boxes))  # ✅ boxes must be tuple for hashability
+        return (next_pos, tuple(boxes))  
 
     def goal_test(self, state):
         _, boxes = state
         return set(boxes) == self.targets
 
     def path_cost(self, c, state1, action, state2):
-        worker1, boxes1 = state1
-        worker2, _ = state2
+        _, boxes1 = state1
+        _, boxes2 = state2
 
-        DIRS = {
-            'Left':  (-1, 0),
-            'Right': (1, 0),
-            'Up':    (0, -1),
-            'Down':  (0, 1)
-        }
+        # Convert to sets for comparison
+        boxes1 = set(boxes1)
+        boxes2 = set(boxes2)
 
-        dx, dy = DIRS[action]
-        expected_worker2 = (worker1[0] + dx, worker1[1] + dy)
+        # Find which box was pushed (if any)
+        moved_box = list(boxes2 - boxes1)
+        if len(moved_box) == 1:
+            # The box was pushed from its old position
+            pushed_to = moved_box[0]
+            for old_box in boxes1:
+                dx = pushed_to[0] - old_box[0]
+                dy = pushed_to[1] - old_box[1]
+                if (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    # This is likely the moved box
+                    weight = self.weights_dict.get(old_box, 1)
+                    return c + weight
 
-        # 🔒 Sanity check to make sure state transition is valid
-        assert worker2 == expected_worker2, f"Worker moved incorrectly: {worker1} + {action} != {worker2}"
-
-        push_pos = (worker1[0] + dx, worker1[1] + dy)
-
-        if push_pos in boxes1:
-            # ✅ Lookup the weight from the original box positions
-            weight = self.weights_dict.get(push_pos, 1)
-            return c + weight
-
+        # No box was pushed, or ambiguous movement — count as normal move
         return c + 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -320,7 +351,7 @@ def check_elem_action_seq(warehouse, action_seq):
             # Try to push the box
             box_next = (next_pos[0] + dx, next_pos[1] + dy)
             if box_next in walls or box_next in boxes:
-                return "Impossible"  # can't push box into wall or another box
+                return "Impossible" 
 
             # Move the box
             boxes.remove(next_pos)
@@ -362,25 +393,10 @@ def solve_weighted_sokoban(warehouse):
     
     puzzle = SokobanPuzzle(warehouse)
 
-    def heuristic(node):
-        _, boxes = node.state
-        targets = list(puzzle.targets)
-        weights = puzzle.warehouse.weights or [1] * len(boxes)
+    
+   
 
-        cost_matrix = []
-        for i, box in enumerate(boxes):
-            row = []
-            for target in targets:
-                dist = abs(box[0] - target[0]) + abs(box[1] - target[1])
-                weight = weights[i]
-                # Prefer assigning heavier boxes to closer targets
-                row.append(dist * weight + weight * 0.1)  # small tie-breaker
-            cost_matrix.append(row)
-
-        row_ind, col_ind = linear_sum_assignment(cost_matrix)
-        return sum(cost_matrix[i][j] for i, j in zip(row_ind, col_ind))
-
-    solution_node = search.astar_graph_search(puzzle, h=heuristic)
+    solution_node = search.astar_graph_search(puzzle, h=puzzle.h)
 
     if solution_node is None:
         return 'Impossible', None
