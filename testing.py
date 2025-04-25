@@ -1,13 +1,12 @@
 from sokoban import Warehouse
 from mySokobanSolver import solve_weighted_sokoban, check_elem_action_seq
 from scipy.optimize import linear_sum_assignment
+from time import time
+import os
+import re
 
 
 def verify_box_assignments(initial_boxes, final_boxes, targets, weights):
-    """
-    Uses the Hungarian algorithm to verify if the final box placement
-    matches the minimal weighted cost assignment.
-    """
     cost_matrix = []
     for box in initial_boxes:
         row = []
@@ -25,32 +24,27 @@ def verify_box_assignments(initial_boxes, final_boxes, targets, weights):
 
 
 def test_solve_weighted_sokoban():
-    test_files = [
-        "warehouse_03.txt",
-        "warehouse_8a.txt",
-        "warehouse_13.txt",
-        "warehouse_47.txt",
-        "warehouse_49.txt",
-        "warehouse_103.txt",
-        "warehouse_109.txt",
-        "warehouse_127.txt",
-        "warehouse_131.txt",
-        "warehouse_199.txt"
-    ]
+    warehouse_dir = "./warehouses"
+    test_files = sorted(
+    [f for f in os.listdir(warehouse_dir) if f.endswith('.txt')],
+    key=lambda name: int(re.search(r'\d+', name).group())
+)
 
     for fname in test_files:
         print(f"\n<< Testing {fname} >>")
         w = Warehouse()
-        w.load_warehouse(f"./warehouses/{fname}")
+        w.load_warehouse(os.path.join(warehouse_dir, fname))
         initial_boxes = sorted(w.boxes)
 
+        time1 = time()
         actions, cost = solve_weighted_sokoban(w)
+        time2 = time()
+        print(f"⏱️ Time taken: {time2 - time1:.4f} seconds")
 
         if actions == 'Impossible':
             print("❌ No solution found.")
             continue
-
-        # Step 1: Check the action sequence is valid
+            
         result_str = check_elem_action_seq(w, actions)
         if result_str == "Impossible":
             print("❌ Invalid action sequence.")
@@ -58,12 +52,10 @@ def test_solve_weighted_sokoban():
         else:
             print(f"✅ Valid path — {len(actions)} steps, cost: {cost}")
 
-        # Step 2: Parse the final warehouse state
         final_w = Warehouse()
         final_w.from_string(result_str)
         final_boxes = sorted(final_w.boxes)
 
-        # Only use weight-aware matching if weights are non-zero
         if w.weights and any(w.weights):
             correct_assignment, expected = verify_box_assignments(
                 initial_boxes, final_boxes, list(w.targets), w.weights
@@ -81,12 +73,9 @@ def test_solve_weighted_sokoban():
         else:
             print("✅ Correct final box positions (weights not used)")
 
-
-        # Optional: Show first few actions
-        #print("First few actions:", actions[:10], "..." if len(actions) > 10 else "")
-
         print("Full action sequence ({} steps):".format(len(actions)))
         print(", ".join(actions))
+
 
 if __name__ == "__main__":
     test_solve_weighted_sokoban()

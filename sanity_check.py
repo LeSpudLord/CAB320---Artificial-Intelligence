@@ -90,7 +90,7 @@ def test_solve_weighted_sokoban():
         
     
 
-if __name__ == "__main__":
+if __name__ == "__main__": 
     pass    
 #    print(my_team())  # should print your team
 
